@@ -1,0 +1,27 @@
+锁盾（Shield）— 版权与第三方声明
+==================================
+
+本项目整体以 GNU General Public License v3.0（GPL-3.0）发布，完整条款见 LICENSE。
+
+移植的第三方代码
+----------------
+模块：用户限制（UserRestrictions）目录及其分组
+文件：app/src/main/java/wzmwayne/shield/port/owndroid/UserRestrictions.kt
+来源：OwnDroid — https://github.com/BinTianqi/OwnDroid
+作者：Copyright (C) BinTianqi
+许可：GNU General Public License v3.0
+
+修改说明：仅保留上游 USER_RESTRICTIONS 的能力清单（限制项、分组、最低 API 等级），
+文案改为本地化中文；执行与状态读取改由本项目自身的设备所有者封装
+（control/DeviceOwnerOps.kt）实现，未沿用上游的 Dhizuku 分支与 Compose 界面。
+
+其它内置组件（以未修改的官方发布 APK 形式随应用分发，非本项目代码）
+--------------------------------------------------------------
+- Shizuku+（Drop-In）13.7.0.r2745 — 官方包名 moe.shizuku.privileged.api
+- 雹 Hail 1.11.0
+两者的著作权归各自作者，遵循各自许可。
+
+本项目自研部分
+--------------
+除上述移植文件外，app/src/main/java/wzmwayne/ 下的代码为本项目自研实现。
+能力清单参考过 OwnDroid，但代码系独立实现的部分已在源文件注释中标明“参考”而非“移植”。

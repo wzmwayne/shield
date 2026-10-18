@@ -1,0 +1,22 @@
+.gradle/
+build/
+local.properties
+.staging/
+.idea/
+*.iml
+.DS_Store
+
+# 构建产物与本地敏感文件
+*.apk
+*.aab
+*.jks
+*.keystore
+keystore.properties
+local.properties
+app/build/
+build/
+*.log
+*.hprof
+
+# 内置的第三方 APK 需要随仓库分发（GPL 项目，clone 即可构建）
+!app/src/main/assets/bundled/*.apk

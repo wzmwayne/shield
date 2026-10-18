@@ -1,0 +1,23 @@
+#!/system/bin/sh
+# 锁盾（Shield）激活脚本
+# 由 adb shell 以 shell/root 身份执行：
+#   adb shell sh /data/app/<包名>-<hash>/lib/<abi>/libshield_activate.so
+# 说明：本文件以 .so 名义打包在 APK 里（jniLibs），安装时由系统自动释放到
+#       应用的 nativeLibraryDir，应用内「使用 adb 激活」按钮会直接显示该路径。
+
+PKG="wzmwayne.shield"
+RECEIVER="wzmwayne.shield.admin.ShieldDeviceAdminReceiver"
+
+echo "[锁盾] 目标包：$PKG"
+echo "[锁盾] 1/3 授予 WRITE_SECURE_SETTINGS（无障碍管理核心权限）"
+pm grant "$PKG" android.permission.WRITE_SECURE_SETTINGS
+echo "[锁盾] 2/3 授予 DUMP（崩溃/假死检测）"
+pm grant "$PKG" android.permission.DUMP
+echo "[锁盾] 3/3 设置设备所有者"
+dpm set-device-owner "$PKG/$RECEIVER"
+
+echo "[锁盾] 回读校验："
+echo "[锁盾] - 已安装：$(pm list packages | grep -c "$PKG") 个匹配"
+echo "[锁盾] - 设备所有者："
+dumpsys device_policy | grep -A3 "Device Owner" | head -5
+echo "[锁盾] 完成。请回到锁盾应用，点击「回读校验」继续后续步骤。"

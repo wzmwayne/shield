@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">锁盾</string>
+    <string name="accessibility_service_description">锁盾用无障碍服务维持自身存活、感知前台应用，并在敏感系统页面（设置／卸载／应用信息）自动收紧无障碍权限、在非白名单覆盖层遮挡屏幕约 70% 时阻断该应用。全部判断在本机完成，不联网、不上传、不读取屏幕内容文本。</string>
+    <string name="keepalive_channel_name">保活服务</string>
+    <string name="keepalive_channel_desc">保持锁盾无障碍服务存活</string>
+    <string name="keepalive_notification_title">锁盾防护中</string>
+    <string name="keepalive_notification_text">无障碍保活与响应层运行中（连按音量键 3 次可紧急阻断）</string>
+</resources>

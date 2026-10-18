@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 纯色黑白 + 暗色为主：窗口底色恒为纯黑，状态栏/导航栏同色，不使用浅色变体 -->
+    <style name="Theme.Shield" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/shield_black</item>
+        <item name="android:colorBackground">@color/shield_black</item>
+        <item name="android:statusBarColor">@color/shield_black</item>
+        <item name="android:navigationBarColor">@color/shield_black</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+</resources>
