@@ -95,12 +95,17 @@ object SensitiveGuard {
             }.getOrDefault(false)
         }
 
-        val whitelistOk = DeviceOwnerControlPlane(app).updateAccessibilityWhitelist(trusted)
+        val whitelistOk = !wzmwayne.shield.core.Policies.whitelistEnabled() ||
+            DeviceOwnerControlPlane(app).updateAccessibilityWhitelist(trusted)
 
         val summary = buildString {
             append("敏感页看护已生效（$source）：")
             append(if (removed > 0) "已禁用 $removed 个非白名单无障碍服务" else "没有非白名单无障碍服务在运行")
-            append("；已下发无障碍白名单 = 本应用 + 应用白名单（${trusted.size} 个）：${trusted.joinToString()}")
+            if (wzmwayne.shield.core.Policies.whitelistEnabled()) {
+                append("；已下发无障碍白名单 = 本应用 + 应用白名单（${trusted.size} 个）：${trusted.joinToString()}")
+            } else {
+                append("；无障碍白名单限制已关闭，未写入白名单")
+            }
             if (removed > 0 && !written) append("；⚠ 写入启用列表失败")
             if (!whitelistOk) append("；⚠ 白名单下发失败（需设备所有者）")
         }
@@ -136,7 +141,7 @@ object SensitiveGuard {
                 "撤销白名单失败"
             }
             val selection = Prefs.accessWhitelistSelection.value
-            if (selection.isNotEmpty()) {
+            if (wzmwayne.shield.core.Policies.whitelistEnabled() && selection.isNotEmpty()) {
                 val list = (listOf(AccessibilityWhitelist.SELF_PACKAGE) + selection).distinct()
                 marks += if (plane.updateAccessibilityWhitelist(list)) {
                     "已按你的白名单重新下发（${list.size} 个包）"

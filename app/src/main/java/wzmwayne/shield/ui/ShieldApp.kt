@@ -33,6 +33,7 @@ import wzmwayne.shield.ui.components.ShieldButton
 import wzmwayne.shield.ui.screens.DashboardScreen
 import wzmwayne.shield.ui.screens.EventsScreen
 import wzmwayne.shield.ui.screens.AccessibilityWhitelistScreen
+import wzmwayne.shield.ui.screens.AppsScreen
 import wzmwayne.shield.ui.screens.DeviceOpsScreen
 import wzmwayne.shield.ui.screens.KeepAliveScreen
 import wzmwayne.shield.ui.screens.PinLockScreen
@@ -50,6 +51,7 @@ enum class ShieldTab(val label: String) {
     DASHBOARD("仪表盘"),
     WIZARD("向导"),
     PROTECT("保护"),
+    APPS("应用"),
     POLICIES("策略"),
     EVENTS("日志"),
     SETTINGS("设置"),
@@ -91,6 +93,7 @@ fun ShieldApp(viewModel: ShieldViewModel, onRequestNotification: () -> Unit) {
     LaunchedEffect(tab) {
         when (tab) {
             ShieldTab.PROTECT -> viewModel.refreshApps()
+            ShieldTab.APPS -> viewModel.refreshAppRisks()
             ShieldTab.SETTINGS -> {
                 viewModel.openSettings()
                 viewModel.refreshHomes()
@@ -139,6 +142,8 @@ fun ShieldApp(viewModel: ShieldViewModel, onRequestNotification: () -> Unit) {
                     onSelfDestruct = viewModel::selfDestruct,
                     onResumeProtection = viewModel::resumeProtection,
                     onBlockDebug = viewModel::blockDebugging,
+                    killUiShown = ui.killUiShown,
+                    onTitleTaps = viewModel::onDashboardTitleTaps,
                     onAllowDebug = viewModel::allowDebugging,
                     sensitiveLocked = ui.sensitiveLocked,
                     panicActive = ui.panicActive,
@@ -232,6 +237,21 @@ fun ShieldApp(viewModel: ShieldViewModel, onRequestNotification: () -> Unit) {
                     }
                 }
 
+                ShieldTab.APPS -> AppsScreen(
+                    apps = ui.appRisks,
+                    loading = ui.appRiskLoading,
+                    appFilter = ui.appFilter,
+                    actionTarget = ui.appActionTarget,
+                    onFilterChange = { filter ->
+                        viewModel.setAppFilter(filter)
+                        viewModel.refreshAppRisks()
+                    },
+                    onRefresh = viewModel::refreshAppRisks,
+                    onOpenActions = viewModel::openAppActions,
+                    onCloseActions = viewModel::closeAppActions,
+                    onRunAction = viewModel::runAppAction,
+                )
+
                 ShieldTab.POLICIES -> PoliciesScreen(
                     groups = Policies.grouped(),
                     busy = ui.busy,
@@ -289,6 +309,7 @@ fun ShieldApp(viewModel: ShieldViewModel, onRequestNotification: () -> Unit) {
                         onAllowDebug = viewModel::allowDebugging,
                         onOpenDeviceOps = viewModel::openDeviceOps,
                         onOpenWhitelist = viewModel::openWhitelist,
+                        onTitleTaps = viewModel::onSettingsTitleTaps,
                         organizationName = ui.organizationName,
                         onEditOrganization = viewModel::editOrganizationName,
                         lockScreenText = ui.lockScreenText,

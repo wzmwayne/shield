@@ -24,6 +24,7 @@ enum class Policy(
 
     // ── 执行 ──────────────────────────────────────────────
     CLOSE_ESCALATION("close_escalation", "抗关闭联动", "1 分钟内被关闭 3 次 → 重启无障碍 + 全局阻断；阻断中被关闭 → 中止→禁调试→重跑", PolicyGroup.ACT),
+    WHITELIST_LIMIT("whitelist_limit", "无障碍白名单限制", "用 setPermittedAccessibilityServices 限制可启用的无障碍服务；关闭则立即撤销且不再写入", PolicyGroup.ACT),
     LOCK_DEBUG("lock_debug", "锁定调试", "常驻关闭开发者选项与 ADB；关闭该策略即恢复调试", PolicyGroup.ACT),
     PANIC_DISABLE_DEBUG("panic_disable_debug", "阻断时禁止调试", "阻断流程里额外关闭开发者选项与 ADB", PolicyGroup.ACT),
 
@@ -48,6 +49,9 @@ object Policies {
     fun sensing(policy: Policy): Boolean = isOn(Policy.SENSE_LAYER) && isOn(policy)
 
     fun isSensingEnabled(): Boolean = isOn(Policy.SENSE_LAYER)
+
+    /** 是否允许写「无障碍白名单」（关闭后任何路径都不再写，只做撤销） */
+    fun whitelistEnabled(): Boolean = isOn(Policy.WHITELIST_LIMIT)
 
     fun all(): List<Pair<Policy, Boolean>> = Policy.entries.map { it to isOn(it) }
 

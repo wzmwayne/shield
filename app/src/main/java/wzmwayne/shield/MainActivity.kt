@@ -30,6 +30,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Prefs.init(applicationContext)
+        Prefs.migrateLegacyPanicLog()
         AppLock.lockIfEnabled()
         // 调试接口：按上次开关状态自动恢复
         if (Prefs.debugHttpEnabled.value) {
@@ -54,6 +55,8 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         // 每次离开前台即上锁（可选 PIN）；锁层在 Activity 内部，不是独立页面
         AppLock.onBackground()
+        // 与 PIN 同时机：重新隐藏隐藏入口解锁出来的「危险操作」区域
+        Prefs.setKillUiShown(false)
         super.onStop()
     }
 

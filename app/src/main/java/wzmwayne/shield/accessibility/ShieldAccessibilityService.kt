@@ -2,7 +2,6 @@ package wzmwayne.shield.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
-import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -66,16 +65,6 @@ class ShieldAccessibilityService : AccessibilityService() {
     private val holdDetector = HoldGestureDetector()
     private var holdState = HoldGestureDetector.State.EMPTY
 
-    /** 音量变化兜底通道：即使机型不给 filterKeyEvents，也能靠音量变化识别「连按 3 次」 */
-    private val volumeStamps = ArrayDeque<Long>()
-    private var lastFallbackTriggerAt = 0L
-    private var volumeObserverRegistered = false
-
-    private val volumeObserver = object : android.database.ContentObserver(handler) {
-        override fun onChange(selfChange: Boolean) = onVolumeChanged()
-        override fun onChange(selfChange: Boolean, uri: android.net.Uri?) = onVolumeChanged()
-    }
-
     private var lastOverlayScanAt = 0L
     private var sensitiveRestoreScheduled = false
     private val sensitiveRestore = Runnable {
@@ -97,12 +86,12 @@ class ShieldAccessibilityService : AccessibilityService() {
         handler.postDelayed(heartbeat, Constants.HEARTBEAT_INTERVAL_MS)
         handler.removeCallbacks(logicTick)
         handler.post(logicTick)
-        registerVolumeFallback()
 
         AppLog.event(RiskLevel.L1, "无障碍服务已连接", "感知层、保活主逻辑与自动响应已就绪")
         if (Prefs.keepAliveEnabled.value) {
             KeepAliveEngine.ensureServiceRunning(this, "无障碍服务就绪")
         }
+        Prefs.migrateLegacyPanicLog()
         // 调试接口：开关开着就随服务自动启动（固定 0.0.0.0）
         if (Prefs.debugHttpEnabled.value) {
             kotlin.concurrent.thread(isDaemon = true) {
@@ -153,41 +142,6 @@ class ShieldAccessibilityService : AccessibilityService() {
         PanicOverlay.setPhase("全局阻断完成（可勾选应用继续手动处置）")
         reloadOverlayApps()
         Toast.makeText(this, summary, Toast.LENGTH_LONG).show()
-    }
-
-    private fun registerVolumeFallback() {
-        if (volumeObserverRegistered) return
-        listOf("volume_music", "volume_music_speaker").forEach { key ->
-            runCatching {
-                contentResolver.registerContentObserver(
-                    android.provider.Settings.System.getUriFor(key),
-                    false,
-                    volumeObserver,
-                )
-            }
-        }
-        volumeObserverRegistered = true
-        AppLog.d("音量变化兜底通道已注册")
-    }
-
-    private fun unregisterVolumeFallback() {
-        if (!volumeObserverRegistered) return
-        runCatching { contentResolver.unregisterContentObserver(volumeObserver) }
-        volumeObserverRegistered = false
-        volumeStamps.clear()
-    }
-
-    /** 2.5 秒内音量变化 3 次 → 视为连按音量键（兜底，避免机型不给按键事件） */
-    private fun onVolumeChanged() {
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastFallbackTriggerAt < 5_000L) return
-        volumeStamps.addLast(now)
-        while (volumeStamps.isNotEmpty() && now - volumeStamps.first() > 2_500L) volumeStamps.removeFirst()
-        if (volumeStamps.size >= 3) {
-            volumeStamps.clear()
-            lastFallbackTriggerAt = now
-            triggerGlobalBlock("手势：音量连续变化 3 次（按键兜底通道）")
-        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -249,7 +203,8 @@ class ShieldAccessibilityService : AccessibilityService() {
         PanicOverlay.setTitle("锁盾 · 自动处置（针对性）")
         PanicOverlay.setPhase("检测到覆盖层 ≥70%，正在针对性阻断…")
         if (!PanicOverlay.isShowing()) showPanicOverlay()
-        val summary = PanicResponse.handleAction(this, PanicAction.REDISABLE, listOf(suspect))
+        // 自动路径：userInitiated=false —— 即便动作是 REDISABLE 也明确不是用户操作
+        val summary = PanicResponse.handleAction(this, PanicAction.REDISABLE, listOf(suspect), userInitiated = false)
         PanicOverlay.setPhase("针对性阻断完成")
         reloadOverlayApps()
         AppLog.event(RiskLevel.L3, "覆盖层锁机嫌疑（≥70%）", "$suspect → $summary")
@@ -262,7 +217,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         PanicOverlay.show(
             service = this,
             onAction = { action, packages ->
-                val message = PanicResponse.handleAction(this, action, packages)
+                val message = PanicResponse.handleAction(this, action, packages, userInitiated = true)
                 Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                 if (action == PanicAction.CANCEL_ALL) PanicOverlay.hide() else reloadOverlayApps()
             },
@@ -299,7 +254,6 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent): Boolean {
-        unregisterVolumeFallback()
         handler.removeCallbacks(heartbeat)
         handler.removeCallbacks(logicTick)
         handler.removeCallbacks(sensitiveRestore)
@@ -311,7 +265,6 @@ class ShieldAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
-        unregisterVolumeFallback()
         handler.removeCallbacks(heartbeat)
         handler.removeCallbacks(logicTick)
         handler.removeCallbacks(sensitiveRestore)

@@ -31,11 +31,13 @@ import wzmwayne.shield.core.Constants
 import wzmwayne.shield.core.OwnerMode
 import wzmwayne.shield.control.DeviceOpState
 import wzmwayne.shield.control.DeviceOpsRunner
+import wzmwayne.shield.control.AppActions
 import wzmwayne.shield.control.DeviceOwnerOps
 import wzmwayne.shield.port.owndroid.Restriction
 import wzmwayne.shield.port.owndroid.UserRestrictions
 import wzmwayne.shield.core.AppFilter
 import wzmwayne.shield.core.AppLock
+import wzmwayne.shield.core.AppRiskEvaluator
 import wzmwayne.shield.core.Packages
 import wzmwayne.shield.debug.DebugHttpServer
 import wzmwayne.shield.core.Policies
@@ -111,6 +113,10 @@ class ShieldViewModel(application: Application) : AndroidViewModel(application) 
         val primaryHome: String = Prefs.primaryHome.value,
         val homeCandidates: List<Packages.Entry> = emptyList(),
         val currentHome: String = "",
+        val appRisks: List<AppRiskRow> = emptyList(),
+        val appRiskLoading: Boolean = false,
+        val killUiShown: Boolean = Prefs.killUiShown.value,
+        val appActionTarget: String? = null,
         val restrictions: Map<String, Boolean> = emptyMap(),
         val panicEntries: List<PanicAppEntry> = emptyList(),
         val openTab: ShieldTab? = null,
@@ -150,6 +156,12 @@ class ShieldViewModel(application: Application) : AndroidViewModel(application) 
                         panicActive = Prefs.panicAt.value > 0,
                     )
                 }
+            }
+        }
+        Prefs.migrateLegacyPanicLog()
+        viewModelScope.launch {
+            Prefs.killUiShown.collect { shown ->
+                _ui.update { it.copy(killUiShown = shown) }
             }
         }
         viewModelScope.launch {
@@ -281,6 +293,11 @@ class ShieldViewModel(application: Application) : AndroidViewModel(application) 
                 _ui.update { it.copy(sensitiveLocked = false) }
                 "感知层已关闭：$detail"
             } else null
+            Policy.WHITELIST_LIMIT -> if (!enabled) withContext(Dispatchers.IO) {
+                val ok = DeviceOwnerControlPlane(app).clearAccessibilityWhitelist()
+                _ui.update { it.copy(whitelistCurrent = "已撤销（不再限制）") }
+                if (ok) "已撤销无障碍白名单，此后不再写入" else "撤销白名单失败（需设备所有者）"
+            } else null
             Policy.LOCK_DEBUG -> withContext(Dispatchers.IO) {
                 val result = if (enabled) DebugControl.block(app) else DebugControl.allow(app)
                 result.message
@@ -391,6 +408,9 @@ class ShieldViewModel(application: Application) : AndroidViewModel(application) 
 
     /** 下发白名单：自动补上锁盾自身，避免自锁 */
     fun applyWhitelist() = launchTask("下发无障碍白名单") {
+        if (!wzmwayne.shield.core.Policies.whitelistEnabled()) {
+            return@launchTask "「无障碍白名单限制」策略已关闭：不写入白名单。要使用请先在策略页打开它"
+        }
         val list = (listOf(AccessibilityWhitelist.SELF_PACKAGE) + _ui.value.accessWhitelist).distinct()
         val ok = withContext(Dispatchers.IO) { DeviceOwnerControlPlane(app).updateAccessibilityWhitelist(list) }
         refreshWhitelistState()
@@ -462,6 +482,83 @@ class ShieldViewModel(application: Application) : AndroidViewModel(application) 
             )
         }
         message
+    }
+
+    /** 应用管理页的一行（评分 + 标签） */
+    data class AppRiskRow(
+        val packageName: String,
+        val label: String,
+        val score: Int,
+        val tags: List<String>,
+    )
+
+    fun refreshAppRisks() {
+        viewModelScope.launch {
+            _ui.update { it.copy(appRiskLoading = true) }
+            val rows = withContext(Dispatchers.IO) {
+                val pm = app.packageManager
+                val plane = DeviceOwnerControlPlane(app)
+                val admins = plane.activeAdmins().map { it.packageName }.toSet()
+                val declaredAccessibility = runCatching {
+                    pm.queryIntentServices(
+                        android.content.Intent("android.accessibilityservice.AccessibilityService"), 0,
+                    ).map { it.serviceInfo.packageName }.toSet()
+                }.getOrDefault(emptySet())
+                val enabledAccessibility = wzmwayne.shield.keepalive.AccessibilitySettings.enabledList(app)
+                    .map { it.substringBefore('/') }.toSet()
+                val appOps = app.getSystemService(android.app.AppOpsManager::class.java)
+                val trusted = Prefs.trustedPackages.value
+
+                val filter = _ui.value.appFilter
+                PackageInventory.listApps(app, trusted, filter).map { entry ->
+                    val info = runCatching { pm.getApplicationInfo(entry.packageName, 0) }.getOrNull()
+                    val uid = info?.uid ?: -1
+                    fun opGranted(op: String) = uid >= 0 &&
+                        appOps?.checkOpNoThrow(op, uid, entry.packageName) == android.app.AppOpsManager.MODE_ALLOWED
+                    val flags = AppRiskEvaluator.Flags(
+                        packageName = entry.packageName,
+                        label = entry.label,
+                        isSystem = entry.isSystem,
+                        trusted = entry.trusted,
+                        deviceAdmin = entry.packageName in admins,
+                        accessibilityServiceDeclared = entry.packageName in declaredAccessibility,
+                        accessibilityEnabled = entry.packageName in enabledAccessibility,
+                        overlayGranted = opGranted(android.app.AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW),
+                        installPackagesGranted = opGranted("android:request_install_packages"),
+                        hidden = plane.isApplicationHidden(entry.packageName),
+                        suspended = plane.isPackagesSuspended(entry.packageName),
+                    )
+                    val score = AppRiskEvaluator.evaluate(flags)
+                    AppRiskRow(entry.packageName, entry.label, score.value, score.tags)
+                }.sortedByDescending { it.score }
+            }
+            _ui.update { it.copy(appRisks = rows, appRiskLoading = false) }
+        }
+    }
+
+    fun openAppActions(packageName: String) = _ui.update { it.copy(appActionTarget = packageName) }
+
+    fun closeAppActions() = _ui.update { it.copy(appActionTarget = null) }
+
+    fun runAppAction(packageName: String, action: AppActions.Action) = launchTask("应用管理：${action.label}") {
+        val message = withContext(Dispatchers.IO) { AppActions.run(app, packageName, action) }
+        refreshAppRisks()
+        if (action == AppActions.Action.UNINSTALL) _ui.update { it.copy(appActionTarget = null) }
+        message
+    }
+
+    /** 仪表盘标题连点 10 次 */
+    fun onDashboardTitleTaps() {
+        Prefs.setDebugKill(true)
+        toast("debug_kill=true")
+    }
+
+    /** 设置页标题连点：仅在 debug_kill 之后生效 */
+    fun onSettingsTitleTaps(): Boolean {
+        if (!Prefs.debugKill.value) return false
+        Prefs.setKillUiShown(true)
+        toast("show=true")
+        return true
     }
 
     fun openWhitelist() {

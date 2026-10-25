@@ -15,55 +15,95 @@ import wzmwayne.shield.response.SensitiveGuard
 
 class HoldGestureDetectorTest {
 
-    private val detector = HoldGestureDetector(pressCount = 3, intervalMs = 700L)
+    private val detector = HoldGestureDetector(rounds = 5, windowMs = 5_000L)
 
     private fun press(keyCode: Int, now: Long, state: HoldGestureDetector.State) =
         detector.onPress(keyCode, now, state)
 
-    @Test
-    fun `连按音量下 3 次触发`() {
+    /** 依次喂入 下 上 下 上 … */
+    private fun feed(count: Int, startAt: Long = 1_000L, gap: Long = 300L): Pair<Boolean, HoldGestureDetector.State> {
         var state = HoldGestureDetector.State.EMPTY
-        state = press(KeyEvent.KEYCODE_VOLUME_DOWN, 1_000L, state).state
-        state = press(KeyEvent.KEYCODE_VOLUME_DOWN, 1_300L, state).state
-        val result = press(KeyEvent.KEYCODE_VOLUME_DOWN, 1_600L, state)
-        assertTrue("第三次应立即触发", result.triggerGlobal)
-        assertEquals(Prompt.TRIGGERED, result.prompt)
-        assertEquals("触发后计数应清零", 0, result.state.count)
+        var triggered = false
+        repeat(count) { i ->
+            val key = if (i % 2 == 0) KeyEvent.KEYCODE_VOLUME_DOWN else KeyEvent.KEYCODE_VOLUME_UP
+            val r = press(key, startAt + i * gap, state)
+            state = r.state
+            if (r.triggerGlobal) triggered = true
+        }
+        return triggered to state
     }
 
     @Test
-    fun `连按音量上 3 次同样触发`() {
-        var state = HoldGestureDetector.State.EMPTY
-        state = press(KeyEvent.KEYCODE_VOLUME_UP, 1_000L, state).state
-        state = press(KeyEvent.KEYCODE_VOLUME_UP, 1_200L, state).state
-        assertTrue(press(KeyEvent.KEYCODE_VOLUME_UP, 1_400L, state).triggerGlobal)
+    fun `5 秒内上下交替 5 轮触发`() {
+        val (triggered, state) = feed(count = 10)
+        assertTrue("下上下上×5 应触发", triggered)
+        assertEquals("触发后清零", 0, state.steps)
     }
 
     @Test
-    fun `间隔过长重新计数`() {
+    fun `只做 4 轮不触发`() {
+        val (triggered, state) = feed(count = 8)
+        assertFalse(triggered)
+        assertEquals(8, state.steps)
+    }
+
+    @Test
+    fun `正常调节音量不误触`() {
         var state = HoldGestureDetector.State.EMPTY
-        state = press(KeyEvent.KEYCODE_VOLUME_DOWN, 1_000L, state).state
-        state = press(KeyEvent.KEYCODE_VOLUME_DOWN, 1_300L, state).state
-        val late = press(KeyEvent.KEYCODE_VOLUME_DOWN, 3_000L, state)
+        var triggered = false
+        // 连续按 3 次音量下
+        (0 until 3).forEach { i ->
+            val r = press(KeyEvent.KEYCODE_VOLUME_DOWN, 1_000L + i * 200L, state)
+            state = r.state; triggered = triggered || r.triggerGlobal
+        }
+        // 再连按 5 次音量上
+        (0 until 5).forEach { i ->
+            val r = press(KeyEvent.KEYCODE_VOLUME_UP, 2_000L + i * 200L, state)
+            state = r.state; triggered = triggered || r.triggerGlobal
+        }
+        assertFalse("普通调音量不应触发", triggered)
+    }
+
+    @Test
+    fun `超过 5 秒窗口重新开始`() {
+        var state = HoldGestureDetector.State.EMPTY
+        // 前 6 步按时序完成
+        (0 until 6).forEach { i ->
+            val key = if (i % 2 == 0) KeyEvent.KEYCODE_VOLUME_DOWN else KeyEvent.KEYCODE_VOLUME_UP
+            state = press(key, 1_000L + i * 300L, state).state
+        }
+        assertEquals(6, state.steps)
+        // 第 7 步拖到窗口外（1_000 + 6_000）
+        val late = press(KeyEvent.KEYCODE_VOLUME_DOWN, 8_500L, state)
         assertFalse(late.triggerGlobal)
-        assertEquals("超时后从 1 重新计数", 1, late.state.count)
+        assertEquals("超时后从第 1 步重来", 1, late.state.steps)
     }
 
     @Test
-    fun `换键重新计数`() {
-        var state = HoldGestureDetector.State.EMPTY
-        state = press(KeyEvent.KEYCODE_VOLUME_DOWN, 1_000L, state).state
-        state = press(KeyEvent.KEYCODE_VOLUME_DOWN, 1_200L, state).state
-        val switched = press(KeyEvent.KEYCODE_VOLUME_UP, 1_400L, state)
-        assertFalse(switched.triggerGlobal)
-        assertEquals(1, switched.state.count)
+    fun `方向不对不计数`() {
+        // 先按"上"不能作为起点
+        val first = press(KeyEvent.KEYCODE_VOLUME_UP, 1_000L, HoldGestureDetector.State.EMPTY)
+        assertEquals(0, first.state.steps)
+        // 正确起步后再按"下"（应为"上"）→ 重置为 1
+        var state = press(KeyEvent.KEYCODE_VOLUME_DOWN, 1_200L, HoldGestureDetector.State.EMPTY).state
+        assertEquals(1, state.steps)
+        state = press(KeyEvent.KEYCODE_VOLUME_DOWN, 1_400L, state).state
+        assertEquals("方向不对要从头开始", 1, state.steps)
     }
 
     @Test
     fun `非音量键忽略`() {
         val r = press(KeyEvent.KEYCODE_POWER, 1_000L, HoldGestureDetector.State.EMPTY)
-        assertEquals(0, r.state.count)
+        assertEquals(0, r.state.steps)
         assertFalse(r.triggerGlobal)
+    }
+
+    @Test
+    fun `完成第一轮给提示音`() {
+        var state = HoldGestureDetector.State.EMPTY
+        state = press(KeyEvent.KEYCODE_VOLUME_DOWN, 1_000L, state).state
+        val r = press(KeyEvent.KEYCODE_VOLUME_UP, 1_300L, state)
+        assertEquals(Prompt.READY, r.prompt)
     }
 }
 
@@ -151,5 +191,56 @@ class PinHasherTest {
         val salt = wzmwayne.shield.core.PinHasher.randomSalt()
         val hash = wzmwayne.shield.core.PinHasher.hash("1111", salt)
         assertFalse(wzmwayne.shield.core.PinHasher.verify("1111", salt, hash.copyOf(hash.size - 1)))
+    }
+}
+
+class AppRiskEvaluatorTest {
+
+    private fun flags(
+        trusted: Boolean = false,
+        admin: Boolean = false,
+        accDeclared: Boolean = false,
+        accEnabled: Boolean = false,
+        overlay: Boolean = false,
+        system: Boolean = false,
+        hidden: Boolean = false,
+    ) = wzmwayne.shield.core.AppRiskEvaluator.Flags(
+        packageName = "com.demo",
+        label = "Demo",
+        isSystem = system,
+        trusted = trusted,
+        deviceAdmin = admin,
+        accessibilityServiceDeclared = accDeclared,
+        accessibilityEnabled = accEnabled,
+        overlayGranted = overlay,
+        installPackagesGranted = false,
+        hidden = hidden,
+        suspended = false,
+    )
+
+    @Test
+    fun `非白名单高权限得分更高`() {
+        val plain = wzmwayne.shield.core.AppRiskEvaluator.evaluate(flags())
+        val admin = wzmwayne.shield.core.AppRiskEvaluator.evaluate(flags(admin = true))
+        assertTrue(admin.value > plain.value)
+        assertTrue(admin.tags.contains("设备管理器"))
+    }
+
+    @Test
+    fun `白名单与系统应用降分`() {
+        val trusted = wzmwayne.shield.core.AppRiskEvaluator.evaluate(flags(trusted = true))
+        val plain = wzmwayne.shield.core.AppRiskEvaluator.evaluate(flags())
+        val system = wzmwayne.shield.core.AppRiskEvaluator.evaluate(flags(system = true))
+        assertTrue(trusted.value < plain.value)
+        assertTrue(system.value < plain.value)
+        assertTrue(trusted.tags.contains("白名单"))
+    }
+
+    @Test
+    fun `启用无障碍比仅声明更高`() {
+        val declared = wzmwayne.shield.core.AppRiskEvaluator.evaluate(flags(accDeclared = true))
+        val enabled = wzmwayne.shield.core.AppRiskEvaluator.evaluate(flags(accDeclared = true, accEnabled = true))
+        assertTrue(enabled.value > declared.value)
+        assertTrue(enabled.tags.contains("无障碍(启用)"))
     }
 }

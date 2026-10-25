@@ -8,7 +8,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,6 +43,7 @@ fun SettingsScreen(
     onAllowDebug: () -> Unit,
     onOpenDeviceOps: () -> Unit,
     onOpenWhitelist: () -> Unit,
+    onTitleTaps: () -> Boolean,
     organizationName: String,
     onEditOrganization: (String) -> Unit,
     lockScreenText: String,
@@ -75,7 +78,19 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("设置", style = MaterialTheme.typography.headlineMedium, color = ShieldWhite)
+        var titleTaps by remember { mutableIntStateOf(0) }
+        Text(
+            text = "设置",
+            style = MaterialTheme.typography.headlineMedium,
+            color = ShieldWhite,
+            modifier = Modifier.clickable {
+                titleTaps += 1
+                if (titleTaps >= 7) {
+                    titleTaps = 0
+                    onTitleTaps()
+                }
+            },
+        )
 
         ShieldCard(title = "调试通道") {
             Text(

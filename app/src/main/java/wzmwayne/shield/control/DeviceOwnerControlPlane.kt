@@ -154,6 +154,23 @@ class DeviceOwnerControlPlane(context: Context) : ControlPlane {
             .getOrDefault(false)
     }
 
+    /**
+     * 把权限管理权交还系统/用户：`PERMISSION_GRANT_STATE_DEFAULT`，
+     * 此后不再由设备所有者强制授予或拒绝，用户可在系统设置里自行管理。
+     */
+    fun restorePermissionPolicy(packageName: String, permission: String): Boolean {
+        val manager = dpm ?: return false
+        return runCatching {
+            manager.setPermissionGrantState(
+                admin,
+                packageName,
+                permission,
+                DevicePolicyManager.PERMISSION_GRANT_STATE_DEFAULT,
+            )
+        }.onFailure { AppLog.w("恢复权限默认($packageName/$permission) 失败：${it.message}") }
+            .getOrDefault(false)
+    }
+
     /** 清理应用数据：阻塞等待系统回调，返回**真实结果** */
     override fun clearApplicationUserData(packageName: String): Boolean {
         val manager = dpm ?: return false

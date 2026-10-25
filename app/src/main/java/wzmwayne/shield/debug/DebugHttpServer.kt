@@ -246,6 +246,8 @@ object DebugHttpServer {
                 put("accessWhitelistSelection", JSONArray(Prefs.accessWhitelistSelection.value.toList()))
                 put("keepAlive", Prefs.keepAliveEnabled.value)
                 put("pinEnabled", Prefs.pinEnabled.value)
+                put("debugKill", Prefs.debugKill.value)
+                put("killUiShown", Prefs.killUiShown.value)
                 put("trustedHomes", JSONArray(Prefs.trustedHomes.value.toList()))
                 put("primaryHome", Prefs.primaryHome.value)
                 put("panicAt", Prefs.panicAt.value)
@@ -383,7 +385,10 @@ object DebugHttpServer {
 
             path == "/access-whitelist" && method == "POST" -> JSONObject().apply {
                 val json = JSONObject(body.ifEmpty { "{}" })
-                if (json.optBoolean("clear", false)) {
+                if (!json.optBoolean("clear", false) && !Policies.whitelistEnabled()) {
+                    put("ok", false)
+                    put("error", "「无障碍白名单限制」策略已关闭，拒绝写入")
+                } else if (json.optBoolean("clear", false)) {
                     put("ok", plane.clearAccessibilityWhitelist())
                     put("result", "cleared")
                 } else {

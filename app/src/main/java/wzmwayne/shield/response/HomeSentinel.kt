@@ -67,7 +67,9 @@ object HomeSentinel {
 
         // 可疑桌面：隐藏 + 挂起（走统一处置链，含回读校验）
         if (current != app.packageName) {
-            runCatching { PanicResponse.handleAction(app, PanicAction.REDISABLE, listOf(current)) }
+            runCatching {
+                PanicResponse.handleAction(app, PanicAction.REDISABLE, listOf(current), userInitiated = false)
+            }
         }
         return detail
     }

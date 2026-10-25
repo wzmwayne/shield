@@ -61,7 +61,10 @@ object PanicResponse {
         )
 
         stream("① 收紧无障碍白名单为「仅锁盾自身」")
-        if (!Policies.isOn(Policy.SELF_LOCK_WHITELIST)) {
+        if (!Policies.whitelistEnabled()) {
+            stream("无障碍白名单限制已关闭：不写入白名单")
+            marks += "无障碍白名单限制已关闭，跳过白名单收紧"
+        } else if (!Policies.isOn(Policy.SELF_LOCK_WHITELIST)) {
             marks += "白名单自锁防护已关闭，跳过白名单收紧"
         } else if (plane.isReady()) {
             marks += if (plane.updateAccessibilityWhitelist(listOf(AccessibilityWhitelist.SELF_PACKAGE))) {
@@ -216,10 +219,20 @@ object PanicResponse {
         return result
     }
 
-    fun handleAction(context: Context, action: PanicAction, packages: List<String>): String {
+    fun handleAction(
+        context: Context,
+        action: PanicAction,
+        packages: List<String>,
+        userInitiated: Boolean = true,
+    ): String {
         val app = context.applicationContext
         val plane = DeviceOwnerControlPlane(app)
         if (action != PanicAction.CANCEL_ALL && packages.isEmpty()) return "未勾选任何应用"
+        // 硬闸门：**自动路径永不卸载**，卸载只能由用户在覆盖层手动点击
+        if (action == PanicAction.UNINSTALL && !userInitiated) {
+            AppLog.event(RiskLevel.L3, "拒绝自动卸载", "卸载仅允许用户手动触发")
+            return "已拒绝：自动处置不允许卸载应用"
+        }
 
         return when (action) {
             PanicAction.CLEAR_DATA -> {
@@ -247,8 +260,14 @@ object PanicResponse {
                 persistReportEntries(entries)
                 // 手动处置同样要收紧无障碍白名单：本应用 + 应用白名单
                 val trustedNow = (listOf(AccessibilityWhitelist.SELF_PACKAGE) + Prefs.trustedPackages.value).distinct()
-                val whitelistOk = plane.updateAccessibilityWhitelist(trustedNow)
-                stream("手动处置：已下发无障碍白名单 = 本应用 + 应用白名单（${trustedNow.size} 个）")
+                val whitelistOk = !Policies.whitelistEnabled() || plane.updateAccessibilityWhitelist(trustedNow)
+                stream(
+                    if (Policies.whitelistEnabled()) {
+                        "手动处置：已下发无障碍白名单 = 本应用 + 应用白名单（${trustedNow.size} 个）"
+                    } else {
+                        "手动处置：无障碍白名单限制已关闭，未写入"
+                    },
+                )
                 val message = buildString {
                     append("已再次禁用 ${entries.size} 个应用（隐藏+挂起+撤权）")
                     append(if (whitelistOk) "；白名单已收紧为 ${trustedNow.size} 个包" else "；⚠ 白名单下发失败")
@@ -417,7 +436,7 @@ object PanicResponse {
             marks += if (whitelistCleared) "已撤销无障碍白名单（所有服务恢复允许）" else "撤销无障碍白名单失败"
             // 用户手动配置过白名单 → 恢复后重新落地，否则保持"不限制"
             val selection = Prefs.accessWhitelistSelection.value
-            if (selection.isNotEmpty()) {
+            if (Policies.whitelistEnabled() && selection.isNotEmpty()) {
                 val list = (listOf(AccessibilityWhitelist.SELF_PACKAGE) + selection).distinct()
                 marks += if (plane.updateAccessibilityWhitelist(list)) {
                     "已按你的白名单重新下发（${list.size} 个包）"

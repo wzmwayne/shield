@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -55,6 +56,8 @@ fun DashboardScreen(
     onRefresh: () -> Unit,
     onSelfDestruct: () -> Unit,
     onBlockDebug: () -> Unit,
+    killUiShown: Boolean,
+    onTitleTaps: () -> Unit,
     onAllowDebug: () -> Unit,
     onResumeProtection: () -> Unit,
     modifier: Modifier = Modifier,
@@ -67,11 +70,19 @@ fun DashboardScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        var titleTaps by remember { mutableIntStateOf(0) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "锁盾",
                 style = MaterialTheme.typography.headlineMedium,
                 color = ShieldWhite,
+                modifier = Modifier.clickable {
+                    titleTaps += 1
+                    if (titleTaps >= 10) {
+                        titleTaps = 0
+                        onTitleTaps()
+                    }
+                },
             )
             Spacer(Modifier.width(12.dp))
             StateChip(
@@ -88,7 +99,7 @@ fun DashboardScreen(
         }
 
         if (selfDestructed) {
-            ShieldCard(title = "应用已停摆（一键自杀）") {
+            ShieldCard(title = "应用已停摆") {
                 Text(
                     text = "自保护已关闭、无障碍已移除、设备所有者已释放。需要重新激活并点击下方按钮才会恢复防护。",
                     style = MaterialTheme.typography.bodySmall,
@@ -159,7 +170,7 @@ fun DashboardScreen(
             }
         }
 
-        ShieldCard(title = "危险操作") {
+        if (killUiShown) ShieldCard(title = "危险操作") {
             Text(
                 text = "释放设备所有者 → 关闭自保护 → 移出无障碍 → 停止服务 → 退出进程（需重新激活）。",
                 style = MaterialTheme.typography.bodySmall,

@@ -57,6 +57,8 @@ object Prefs {
     private const val K_DEBUG_HTTP = "debug_http_enabled"
     private const val K_DEBUG_HTTP_PORT = "debug_http_port"
     private const val K_DEBUG_HTTP_LAN = "debug_http_lan"
+    private const val K_DEBUG_KILL = "debug_kill"
+    private const val K_KILL_UI_SHOWN = "kill_ui_shown"
     private const val K_OWNER_SNAPSHOT = "owner_snapshot"
     private const val K_ACCESSIBILITY_SNAPSHOT = "accessibility_snapshot"
 
@@ -121,6 +123,10 @@ object Prefs {
     /** 调试接口是否绑 0.0.0.0（局域网可达）；false = 仅 127.0.0.1 */
     val debugHttpLan = MutableStateFlow(false)
 
+    /** 隐藏解锁：debug_kill（仪表盘标题连点 10 次）与 kill_ui_shown（设置标题连点） */
+    val debugKill = MutableStateFlow(false)
+    val killUiShown = MutableStateFlow(false)
+
     /** 敏感页触发的"无障碍收紧"状态与回滚快照 */
     val sensitiveLockAt = MutableStateFlow(0L)
     val sensitiveSnapshotAccessibility = MutableStateFlow("")
@@ -171,6 +177,8 @@ object Prefs {
         debugHttpEnabled.value = prefs.getBoolean(K_DEBUG_HTTP, false)
         debugHttpPort.value = prefs.getInt(K_DEBUG_HTTP_PORT, 8686)
         debugHttpLan.value = prefs.getBoolean(K_DEBUG_HTTP_LAN, false)
+        debugKill.value = prefs.getBoolean(K_DEBUG_KILL, false)
+        killUiShown.value = prefs.getBoolean(K_KILL_UI_SHOWN, false)
         accessWhitelistSelection.value = prefs.getString(K_ACCESS_SELECTION, "").orEmpty()
             .split(',')
             .map { it.trim() }
@@ -306,6 +314,16 @@ object Prefs {
         edit { it.putBoolean(K_PIN_ENABLED, enabled) }
     }
 
+    fun setDebugKill(enabled: Boolean) {
+        debugKill.value = enabled
+        edit { it.putBoolean(K_DEBUG_KILL, enabled) }
+    }
+
+    fun setKillUiShown(shown: Boolean) {
+        killUiShown.value = shown
+        edit { it.putBoolean(K_KILL_UI_SHOWN, shown) }
+    }
+
     fun setDebugHttp(enabled: Boolean, port: Int, lan: Boolean) {
         debugHttpEnabled.value = enabled
         debugHttpPort.value = port
@@ -328,6 +346,26 @@ object Prefs {
         edit {
             it.putString(K_TRUSTED_HOMES, packages.joinToString(","))
             it.putString(K_PRIMARY_HOME, primary)
+        }
+    }
+
+    /**
+     * 历史阻断日志里的旧手势文案加注记：
+     * 旧版本用过「连按 3 次 / 音量连续变化 3 次」，现在只认「音量键上下交替 5 轮」。
+     */
+    fun migrateLegacyPanicLog() {
+        val current = panicLog.value
+        if (current.isBlank()) return
+        var updated = current
+        listOf(
+            "手势：音量连续变化 3 次（按键兜底通道）",
+            "手势：连按音量键 3 次",
+        ).forEach { legacy ->
+            updated = updated.replace(legacy, "$legacy（旧版本记录，当前手势为音量键上下交替 5 轮）")
+        }
+        if (updated != current) {
+            panicLog.value = updated
+            edit { it.putString(K_PANIC_LOG, updated) }
         }
     }
 
